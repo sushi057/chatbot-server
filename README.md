@@ -1,3 +1,15 @@
+# TODO
+
+## Server
+- [ ] Use Langchain OpenAI to read minimum wage from state labor laws website.
+- [ ] Calculate anual salary from minimum wage and validate with employers offer salary.
+- [ ] Create a database for hired employees with requirements met.
+- [ ] Automatich email dispatch for hired employees.
+
+## Client/UI
+- [ ] Figma design for chatbot
+- [ ] React w/ Tailwind
+
 <p align="center">
   <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="200" alt="Nest Logo" /></a>
 </p>
