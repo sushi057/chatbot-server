@@ -7,9 +7,14 @@ import { MongoClient } from 'mongodb';
 import { OpenAIEmbeddings } from '@langchain/openai';
 import { createStuffDocumentsChain } from 'langchain/chains/combine_documents';
 import { createRetrievalChain } from 'langchain/chains/retrieval';
-import { ChatPromptTemplate } from '@langchain/core/prompts';
-import { createHistoryAwareRetriever } from 'langchain/chains/history_aware_retriever';
-import { MessagesPlaceholder } from '@langchain/core/prompts';
+import { ConversationalRetrievalQAChain } from 'langchain/chains';
+import {
+  ChatPromptTemplate,
+  MessagesPlaceholder,
+} from '@langchain/core/prompts';
+import { BufferMemory } from 'langchain/memory';
+import { UpstashRedisChatMessageHistory } from '@langchain/community/stores/message/upstash_redis';
+import { ConversationChain } from 'langchain/chains';
 
 @Injectable()
 export class SalaryService {
@@ -17,6 +22,7 @@ export class SalaryService {
   private vectorStore: MongoDBAtlasVectorSearch;
   private collection: any;
   private embeddings: OpenAIEmbeddings;
+  private memory: BufferMemory;
 
   constructor() {
     // Initialise mongodb collection
@@ -42,6 +48,20 @@ export class SalaryService {
       indexName: 'vector_index',
       textKey: 'text',
       embeddingKey: 'embeddings',
+    });
+
+    // Load redis chat memory
+    this.memory = new BufferMemory({
+      memoryKey: 'history',
+      returnMessages: true,
+      chatHistory: new UpstashRedisChatMessageHistory({
+        sessionId: new Date().toISOString(),
+        sessionTTL: 600,
+        config: {
+          url: process.env.REDIS_URI,
+          token: process.env.REDIS_TOKEN,
+        },
+      }),
     });
 
     this.chatModel = new ChatOpenAI({
@@ -100,19 +120,22 @@ export class SalaryService {
 
   async getSalary(question: string) {
     try {
-      const prompt = ChatPromptTemplate.fromTemplate(
-        `
-        "You are a chatbot specializing in assisting users with minimum wage inquiries and evaluating company-provided salaries. You provide analytical responses to questions, guiding users in making informed decisions regarding their wages
-        Keep the answers concise.
+      const prompt = ChatPromptTemplate.fromMessages([
+        [
+          'system',
+          `
+          You are a chatbot specializing in assisting users with minimum wage inquiries and evaluating company-provided salaries. You provide analytical responses to questions, guiding users in making informed decisions regarding their wages
+          Keep the answers concise.
 
-        <context>
-        {context}
-        </context>
+          <context>
+          {context}
+          </context>
 
-        Question: {input}
-
-        `,
-      );
+          `,
+        ],
+        new MessagesPlaceholder('history'),
+        ['human', '{input}'],
+      ]);
 
       const documentChain = await createStuffDocumentsChain({
         llm: this.chatModel,
@@ -122,51 +145,46 @@ export class SalaryService {
       const vectorStore = this.vectorStore;
       const retriever = vectorStore.asRetriever();
 
+      const chain = ConversationalRetrievalQAChain.fromLLM(
+        this.chatModel,
+        retriever,
+        this.memory,
+      );
+
       const retrievalChain = await createRetrievalChain({
         combineDocsChain: documentChain,
         retriever,
       });
 
-      const historyAwarePrompt = ChatPromptTemplate.fromMessages([
-        [
-          'system',
-          `
-          "You are a chatbot specializing in assisting users with minimum wage inquiries and evaluating company-provided salaries. You provide analytical responses to questions, guiding users in making informed decisions regarding their wages.
-          Answer questions based on the given context.
+      // const formatChatHistory = (
+      //   human: string,
+      //   ai: string,
+      //   previousChatHistory?: string,
+      // ) => {
+      //   const newInteraction = `Human: ${human} \nAI: ${ai}`;
 
-          <context>
-          {context}
-          </context>
-          `,
-        ],
-        new MessagesPlaceholder('chat_history'),
-        ['human', '{input}'],
-      ]);
+      //   if (!previousChatHistory) {
+      //     return newInteraction;
+      //   }
+      //   return `${previousChatHistory} \n\n ${newInteraction}`;
+      // };
 
-      const historyAwareCombineDocsChain = await createStuffDocumentsChain({
+      // const result = await retrievalChain.invoke({
+      //   input: question,
+      //   chat_history: await this.memory.chatHistory.getMessages(),
+      // });
+
+      const chainTwo = new ConversationChain({
         llm: this.chatModel,
-        prompt: historyAwarePrompt,
+        // prompt,
+        memory: this.memory,
       });
-
-      const historyAwareRetrieverChain = await createHistoryAwareRetriever({
-        llm: this.chatModel,
-        retriever,
-        rephrasePrompt: historyAwarePrompt,
-      });
-
-      const conversationalRetrievalChain = await createRetrievalChain({
-        retriever: historyAwareRetrieverChain,
-        combineDocsChain: historyAwareCombineDocsChain,
-      });
-
-      const result2 = await conversationalRetrievalChain.invoke({
-        input: question,
-      });
-
-      const contextDocs = await vectorStore.similaritySearch('colorado?');
+      const contextDocs = await vectorStore.similaritySearch(question);
+      await chainTwo.invoke({ input: question });
 
       const result = await retrievalChain.invoke({
         input: question,
+        history: await this.memory.chatHistory.getMessages(),
       });
 
       return result.answer;
