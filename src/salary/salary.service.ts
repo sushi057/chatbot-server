@@ -8,6 +8,8 @@ import { OpenAIEmbeddings } from '@langchain/openai';
 import { createStuffDocumentsChain } from 'langchain/chains/combine_documents';
 import { createRetrievalChain } from 'langchain/chains/retrieval';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
+import { createHistoryAwareRetriever } from 'langchain/chains/history_aware_retriever';
+import { MessagesPlaceholder } from '@langchain/core/prompts';
 
 @Injectable()
 export class SalaryService {
@@ -37,6 +39,9 @@ export class SalaryService {
 
     this.vectorStore = new MongoDBAtlasVectorSearch(this.embeddings, {
       collection: this.collection,
+      indexName: 'vector_index',
+      textKey: 'text',
+      embeddingKey: 'embeddings',
     });
 
     this.chatModel = new ChatOpenAI({
@@ -62,11 +67,12 @@ export class SalaryService {
       const docs = await webLoader.load();
 
       const splitter = new RecursiveCharacterTextSplitter({
-        chunkSize: 2000,
+        chunkSize: 3000,
         chunkOverlap: 500,
       });
       const splitDocs = await splitter.splitDocuments(docs);
       console.log(splitDocs);
+
       const embeddings = this.embeddings;
 
       const vectorStore = await MongoDBAtlasVectorSearch.fromDocuments(
@@ -81,9 +87,12 @@ export class SalaryService {
       );
 
       this.vectorStore = vectorStore;
+
       console.log(
         `Loaded mongodb vector store with ${splitDocs.length} documents`,
       );
+
+      return { success: 'MongoDB Vector Store setup' };
     } catch (error) {
       console.error('Error seting up vectorstore', error);
     }
@@ -93,9 +102,9 @@ export class SalaryService {
     try {
       const prompt = ChatPromptTemplate.fromTemplate(
         `
-        You're a chatbot aiding users with minimum wage inquiries and evaluating company-provided salaries, answering questions from the US State Labor Laws.
-        Answer questions based on the given context.
-        
+        "You are a chatbot specializing in assisting users with minimum wage inquiries and evaluating company-provided salaries. You provide analytical responses to questions, guiding users in making informed decisions regarding their wages
+        Keep the answers concise.
+
         <context>
         {context}
         </context>
@@ -116,6 +125,42 @@ export class SalaryService {
       const retrievalChain = await createRetrievalChain({
         combineDocsChain: documentChain,
         retriever,
+      });
+
+      const historyAwarePrompt = ChatPromptTemplate.fromMessages([
+        [
+          'system',
+          `
+          "You are a chatbot specializing in assisting users with minimum wage inquiries and evaluating company-provided salaries. You provide analytical responses to questions, guiding users in making informed decisions regarding their wages.
+          Answer questions based on the given context.
+
+          <context>
+          {context}
+          </context>
+          `,
+        ],
+        new MessagesPlaceholder('chat_history'),
+        ['human', '{input}'],
+      ]);
+
+      const historyAwareCombineDocsChain = await createStuffDocumentsChain({
+        llm: this.chatModel,
+        prompt: historyAwarePrompt,
+      });
+
+      const historyAwareRetrieverChain = await createHistoryAwareRetriever({
+        llm: this.chatModel,
+        retriever,
+        rephrasePrompt: historyAwarePrompt,
+      });
+
+      const conversationalRetrievalChain = await createRetrievalChain({
+        retriever: historyAwareRetrieverChain,
+        combineDocsChain: historyAwareCombineDocsChain,
+      });
+
+      const result2 = await conversationalRetrievalChain.invoke({
+        input: question,
       });
 
       const contextDocs = await vectorStore.similaritySearch('colorado?');
