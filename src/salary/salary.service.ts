@@ -61,9 +61,12 @@ export class SalaryService {
       );
       const docs = await webLoader.load();
 
-      const splitter = new RecursiveCharacterTextSplitter();
+      const splitter = new RecursiveCharacterTextSplitter({
+        chunkSize: 2000,
+        chunkOverlap: 500,
+      });
       const splitDocs = await splitter.splitDocuments(docs);
-
+      console.log(splitDocs);
       const embeddings = this.embeddings;
 
       const vectorStore = await MongoDBAtlasVectorSearch.fromDocuments(
@@ -90,7 +93,8 @@ export class SalaryService {
     try {
       const prompt = ChatPromptTemplate.fromTemplate(
         `
-        You're a chatbot aiding users with minimum wage inquiries and evaluating company-provided salaries. Answer questions based on the given context.
+        You're a chatbot aiding users with minimum wage inquiries and evaluating company-provided salaries, answering questions from the US State Labor Laws.
+        Answer questions based on the given context.
         
         <context>
         {context}
@@ -113,6 +117,8 @@ export class SalaryService {
         combineDocsChain: documentChain,
         retriever,
       });
+
+      const contextDocs = await vectorStore.similaritySearch('colorado?');
 
       const result = await retrievalChain.invoke({
         input: question,
