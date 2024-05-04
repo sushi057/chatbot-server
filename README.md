@@ -1,8 +1,8 @@
 # TODO
 
 ## Server
-- [ ] Use Langchain OpenAI to read minimum wage from state labor laws website.
-- [ ] Calculate anual salary from minimum wage and validate with employers offer salary.
+- [ ] Use Langchain OpenAI to read minimum wage from state labor laws website. (salary/get)
+- [ ] Calculate anual salary from minimum wage and validate with employers offer salary. (salary/validate)
 - [ ] Create a database for hired employees with requirements met.
 - [ ] Automatich email dispatch for hired employees.
 
