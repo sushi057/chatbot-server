@@ -15,7 +15,6 @@ import { UpstashRedisChatMessageHistory } from '@langchain/community/stores/mess
 import { ConversationChain } from 'langchain/chains';
 import { createRetrieverTool } from 'langchain/tools/retriever';
 import { AgentExecutor, createOpenAIFunctionsAgent } from 'langchain/agents';
-import { pull } from 'langchain/hub';
 import { StructuredTool } from '@langchain/core/tools';
 import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
