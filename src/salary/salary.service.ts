@@ -5,16 +5,21 @@ import { RecursiveCharacterTextSplitter } from 'langchain/text_splitter';
 import { MongoDBAtlasVectorSearch } from '@langchain/mongodb';
 import { MongoClient } from 'mongodb';
 import { OpenAIEmbeddings } from '@langchain/openai';
-import { createStuffDocumentsChain } from 'langchain/chains/combine_documents';
-import { createRetrievalChain } from 'langchain/chains/retrieval';
-import { ConversationalRetrievalQAChain } from 'langchain/chains';
+import { HumanMessage } from '@langchain/core/messages';
 import {
-  ChatPromptTemplate,
   MessagesPlaceholder,
+  ChatPromptTemplate,
 } from '@langchain/core/prompts';
 import { BufferMemory } from 'langchain/memory';
 import { UpstashRedisChatMessageHistory } from '@langchain/community/stores/message/upstash_redis';
 import { ConversationChain } from 'langchain/chains';
+import { createRetrieverTool } from 'langchain/tools/retriever';
+import { AgentExecutor, createOpenAIFunctionsAgent } from 'langchain/agents';
+import { pull } from 'langchain/hub';
+import { StructuredTool } from '@langchain/core/tools';
+import { DynamicStructuredTool } from '@langchain/core/tools';
+import { z } from 'zod';
+import { createTransport } from 'nodemailer';
 
 @Injectable()
 export class SalaryService {
@@ -120,76 +125,162 @@ export class SalaryService {
 
   async getSalary(question: string) {
     try {
-      const prompt = ChatPromptTemplate.fromMessages([
-        [
-          'system',
-          `
-          You are a chatbot specializing in assisting users with minimum wage inquiries and evaluating company-provided salaries. You provide analytical responses to questions, guiding users in making informed decisions regarding their wages
-          Keep the answers concise.
+      // const prompt = ChatPromptTemplate.fromMessages([
+      //   [
+      //     'system',
+      //     `
+      //     You are a chatbot specializing in assisting hiring manager with minimum wage inquiries and evaluating company-provided salaries. You provide analytical responses to questions, guiding users in making informed decisions.
+      //     Keep the answers concise and show figures/numbers to assist the user.
 
-          <context>
-          {context}
-          </context>
+      //     <context>
+      //     {context}
+      //     </context>
 
-          `,
-        ],
-        new MessagesPlaceholder('history'),
-        ['human', '{input}'],
-      ]);
+      //     `,
+      //   ],
+      //   new MessagesPlaceholder('history'),
+      //   [
+      //     'human',
+      //     `
+      //     I am a Hiring manager and need to get informed decisions about wether the wages I'm offering is suitable for the specific state.
+      //     I need concise answers.
+      //     {input}
+      //     `,
+      //   ],
+      // ]);
 
-      const documentChain = await createStuffDocumentsChain({
-        llm: this.chatModel,
-        prompt,
-      });
+      // const documentChain = await createStuffDocumentsChain({
+      //   llm: this.chatModel,
+      //   prompt,
+      // });
 
       const vectorStore = this.vectorStore;
       const retriever = vectorStore.asRetriever();
 
-      const chain = ConversationalRetrievalQAChain.fromLLM(
-        this.chatModel,
-        retriever,
-        this.memory,
-      );
-
-      const retrievalChain = await createRetrievalChain({
-        combineDocsChain: documentChain,
-        retriever,
+      // nodemailer transporter
+      const transporter = createTransport({
+        service: 'gmail',
+        host: 'smtp.gmail.com',
+        auth: {
+          user: process.env.GMAIL_CLIENT,
+          pass: process.env.GMAIL_PASS,
+        },
       });
 
-      // const formatChatHistory = (
-      //   human: string,
-      //   ai: string,
-      //   previousChatHistory?: string,
-      // ) => {
-      //   const newInteraction = `Human: ${human} \nAI: ${ai}`;
+      // Create retrieval tool
+      const salaryRetrievalTool = createRetrieverTool(retriever, {
+        name: 'salary_search',
+        description:
+          'For any questions about salary and assistance with salary, you must use this tool',
+      });
 
-      //   if (!previousChatHistory) {
-      //     return newInteraction;
-      //   }
-      //   return `${previousChatHistory} \n\n ${newInteraction}`;
-      // };
+      // Mailer tool
+      const mailerDynamicTool = new DynamicStructuredTool({
+        name: 'emailer_bot',
+        description:
+          'For any questions about sending mail and hiring/onboarding new employees. Send mail to the employee about getting hired.',
+        schema: z.object({
+          address: z
+            .string()
+            .describe('The mail address of the employee to send the mail to'),
+          name: z.string().describe('Name of the new employee'),
+          role: z.string().describe('The role of the new employee'),
+          mailBody: z
+            .string()
+            .describe(
+              'Body of the mail to the new employee about the him/her being hired to the company Niural for the role specified from the HR (Mary Jane) at Niural.',
+            ),
+        }),
+        func: async ({ address, mailBody, name }) => {
+          const info = await transporter.sendMail({
+            from: {
+              name: 'John Doe',
+              address: process.env.GMAIL_CLIENT,
+            },
+            to: {
+              name: name,
+              address: 'suvash2077@gmail.com',
+            },
+            subject: 'Welcome to Niuraltech',
+            text: mailBody,
+          });
+          console.log('Message sent: %s', info.messageId);
+          return `${address}`;
+        },
+      });
 
-      // const result = await retrievalChain.invoke({
-      //   input: question,
-      //   chat_history: await this.memory.chatHistory.getMessages(),
-      // });
+      // const agentPrompt = await pull<ChatPromptTemplate>(
+      //   'hwchase17/openai-functions-agent',
+      // );
+
+      const agentPrompt = ChatPromptTemplate.fromMessages([
+        [
+          'system',
+          `
+          You are a recruitment assistant/bot for the company Niural. You are to help the user, a hiring manager, hire employees by sending emails and assisting users with minimum wage inquiries and evaluating company-provided salaries.
+          Ask the user for details about the employee: Name, Role and Email Address when inquired about hiring an employee.
+          `,
+        ],
+        new MessagesPlaceholder('history'),
+        ['human', '{input}'],
+        new MessagesPlaceholder('agent_scratchpad'),
+      ]);
+
+      const tools: StructuredTool[] = [mailerDynamicTool, salaryRetrievalTool];
+      const agent = await createOpenAIFunctionsAgent({
+        llm: this.chatModel,
+        tools,
+        prompt: agentPrompt,
+      });
+
+      const agentExecutor = new AgentExecutor({
+        agent,
+        tools,
+        verbose: true,
+      });
+
+      const response = await agentExecutor.invoke({
+        input: question,
+        history: await this.memory.chatHistory.getMessages(),
+      });
+      console.log(response);
 
       const chainTwo = new ConversationChain({
         llm: this.chatModel,
         // prompt,
         memory: this.memory,
       });
-      const contextDocs = await vectorStore.similaritySearch(question);
+
       await chainTwo.invoke({ input: question });
 
-      const result = await retrievalChain.invoke({
-        input: question,
-        history: await this.memory.chatHistory.getMessages(),
-      });
+      return response;
 
-      return result.answer;
+      // const contextDocs = await vectorStore.similaritySearch(question);
+
+      // const retrievalChain = await createRetrievalChain({
+      //   combineDocsChain: documentChain,
+      //   retriever,
+      // });
+
+      // const result = await retrievalChain.invoke({
+      //   input: question,
+      //   history: await this.memory.chatHistory.getMessages(),
+      // });
+
+      // return result.answer;
     } catch (error) {
       console.error('Error querying salary question', error);
+    }
+  }
+
+  async hireEmployee() {
+    try {
+      const result = await this.chatModel.invoke([
+        new HumanMessage('Translate this to english: te amo'),
+      ]);
+      return result;
+    } catch (error) {
+      console.error('Error hiring employee', error);
     }
   }
 }

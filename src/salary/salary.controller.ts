@@ -1,12 +1,12 @@
 import { Body, Controller, Get, Post } from '@nestjs/common';
 import { SalaryService } from './salary.service';
 
-@Controller('salary')
+@Controller('')
 export class SalaryController {
   constructor(private salaryService: SalaryService) {}
 
-  @Post('get')
-  async getSalary(@Body('question') question: string): Promise<string> {
+  @Post('ask')
+  async getSalary(@Body('question') question: string) {
     return await this.salaryService.getSalary(question);
   }
 
