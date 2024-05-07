@@ -187,7 +187,7 @@ export class SalaryService {
           mailBody: z
             .string()
             .describe(
-              'Body of the mail to the new employee about the him/her being hired to the company Niural for the role specified from the HR (Mary Jane) at Niural.',
+              'Body of the mail to the new employee about the him/her being hired to the company Niural for the role specified from the HR, Mary Jane at Niural.',
             ),
         }),
         func: async ({ address, mailBody, name }) => {
@@ -198,7 +198,7 @@ export class SalaryService {
             },
             to: {
               name: name,
-              address: 'suvash2077@gmail.com',
+              address: address,
             },
             subject: 'Welcome to Niuraltech',
             text: mailBody,
