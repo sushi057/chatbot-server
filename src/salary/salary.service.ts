@@ -21,7 +21,6 @@ import { z } from 'zod';
 import { createTransport } from 'nodemailer';
 import { Model } from 'mongoose';
 import { Employee } from 'src/schemas/employee.schema';
-import { CreateEmployeeDto } from 'src/schemas/create-employee.dto';
 import { InjectModel } from '@nestjs/mongoose';
 
 @Injectable()
@@ -199,6 +198,8 @@ export class SalaryService {
           'system',
           `
           You are a recruitment assistant/bot for the company Niural. You are to help the user, a hiring manager, hire employees by sending emails and assisting users with minimum wage inquiries and evaluating company-provided salaries.
+          Warn the user if the salary offered to a person is less than the state minimum wage.
+          Do not ask the user to do calculation and do it yourself when showing numbers.
           Ask the user for details about the employee: Name, Role and Email Address when inquired about hiring an employee.
           Keep the answers concise.
           `,
