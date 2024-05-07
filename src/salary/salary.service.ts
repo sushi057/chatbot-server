@@ -124,35 +124,6 @@ export class SalaryService {
 
   async getSalary(question: string) {
     try {
-      // const prompt = ChatPromptTemplate.fromMessages([
-      //   [
-      //     'system',
-      //     `
-      //     You are a chatbot specializing in assisting hiring manager with minimum wage inquiries and evaluating company-provided salaries. You provide analytical responses to questions, guiding users in making informed decisions.
-      //     Keep the answers concise and show figures/numbers to assist the user.
-
-      //     <context>
-      //     {context}
-      //     </context>
-
-      //     `,
-      //   ],
-      //   new MessagesPlaceholder('history'),
-      //   [
-      //     'human',
-      //     `
-      //     I am a Hiring manager and need to get informed decisions about wether the wages I'm offering is suitable for the specific state.
-      //     I need concise answers.
-      //     {input}
-      //     `,
-      //   ],
-      // ]);
-
-      // const documentChain = await createStuffDocumentsChain({
-      //   llm: this.chatModel,
-      //   prompt,
-      // });
-
       const vectorStore = this.vectorStore;
       const retriever = vectorStore.asRetriever();
 
@@ -208,16 +179,13 @@ export class SalaryService {
         },
       });
 
-      // const agentPrompt = await pull<ChatPromptTemplate>(
-      //   'hwchase17/openai-functions-agent',
-      // );
-
       const agentPrompt = ChatPromptTemplate.fromMessages([
         [
           'system',
           `
           You are a recruitment assistant/bot for the company Niural. You are to help the user, a hiring manager, hire employees by sending emails and assisting users with minimum wage inquiries and evaluating company-provided salaries.
           Ask the user for details about the employee: Name, Role and Email Address when inquired about hiring an employee.
+          Keep the answers concise.
           `,
         ],
         new MessagesPlaceholder('history'),
