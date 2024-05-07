@@ -12,7 +12,7 @@ export class Employee {
   role: string;
 
   @Prop()
-  mailAdress: string;
+  mailAddress: string;
 }
 
 export const EmployeeSchema = SchemaFactory.createForClass(Employee);

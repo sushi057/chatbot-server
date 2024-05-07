@@ -19,6 +19,10 @@ import { StructuredTool } from '@langchain/core/tools';
 import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { createTransport } from 'nodemailer';
+import { Model } from 'mongoose';
+import { Employee } from 'src/schemas/employee.schema';
+import { CreateEmployeeDto } from 'src/schemas/create-employee.dto';
+import { InjectModel } from '@nestjs/mongoose';
 
 @Injectable()
 export class SalaryService {
@@ -28,8 +32,10 @@ export class SalaryService {
   private embeddings: OpenAIEmbeddings;
   private memory: BufferMemory;
 
-  constructor() {
-    // Initialise mongodb collection
+  constructor(
+    @InjectModel(Employee.name) private employeeModel: Model<Employee>,
+  ) {
+    // Initialize mongodb collection
     const client = new MongoClient(process.env.MONGODB_ATLAS_URI || '');
     const namespace = 'niuraltech.chatbot';
     const [dbName, collectionName] = namespace.split('.');
@@ -118,7 +124,7 @@ export class SalaryService {
 
       return { success: 'MongoDB Vector Store setup' };
     } catch (error) {
-      console.error('Error seting up vectorstore', error);
+      console.error('Error setting up Vector store', error);
     }
   }
 
@@ -161,7 +167,7 @@ export class SalaryService {
               'Body of the mail to the new employee about the him/her being hired to the company Niural for the role specified from the HR, Mary Jane at Niural.',
             ),
         }),
-        func: async ({ address, mailBody, name }) => {
+        func: async ({ address, mailBody, name, role }) => {
           const info = await transporter.sendMail({
             from: {
               name: 'John Doe',
@@ -174,7 +180,16 @@ export class SalaryService {
             subject: 'Welcome to Niuraltech',
             text: mailBody,
           });
-          console.log('Message sent: %s', info.messageId);
+
+          // Add user in database
+          const createEmployee = new this.employeeModel({
+            name: name,
+            role: role,
+            mailAddress: address,
+          });
+          createEmployee.save();
+
+          console.log('Message sent and user created: %s', info.messageId);
           return `${address}`;
         },
       });
